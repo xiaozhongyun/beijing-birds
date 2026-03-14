@@ -419,6 +419,54 @@ const SPOTS = [
 ];
 
 // ==========================================
+// 鸟类照片库 — 从 Wikipedia 动态加载
+// ==========================================
+const BIRD_PHOTOS = {};
+const PHOTO_LOADING = {};
+const RARITY_ORDER = { national1: 0, 'very-rare': 1, rare: 2, uncommon: 3, common: 4 };
+
+// 获取某个鸟种最稀有的那个
+function rarestBird(birds) {
+  return birds.slice().sort((a, b) => (RARITY_ORDER[a.rarity] ?? 5) - (RARITY_ORDER[b.rarity] ?? 5))[0];
+}
+
+// 从 Wikipedia 获取鸟类缩略图
+async function fetchBirdPhoto(latinName) {
+  const key = latinName;
+  if (BIRD_PHOTOS[key]) return BIRD_PHOTOS[key];
+  if (PHOTO_LOADING[key]) return null;
+  PHOTO_LOADING[key] = true;
+  try {
+    const title = latinName.replace(/ /g, '_');
+    const url = `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title)}`;
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error('not ok');
+    const data = await resp.json();
+    const thumb = data.thumbnail?.source;
+    if (thumb) {
+      // 替换为更大尺寸
+      BIRD_PHOTOS[key] = thumb.replace(/\/\d+px-/, '/120px-');
+      return BIRD_PHOTOS[key];
+    }
+  } catch(e) { /* fallback to emoji */ }
+  return null;
+}
+
+// 批量预加载所有鸟种照片
+async function preloadPhotos() {
+  const allLatins = new Set();
+  SPOTS.forEach(s => s.birds.forEach(b => allLatins.add(b.latin)));
+  // 并发加载但限制并发数
+  const arr = [...allLatins];
+  for (let i = 0; i < arr.length; i += 5) {
+    await Promise.all(arr.slice(i, i + 5).map(l => fetchBirdPhoto(l)));
+  }
+  // 重新渲染标记和面板
+  renderMarkers();
+  renderPanel(document.getElementById('searchInput').value);
+}
+
+// ==========================================
 // 地图
 // ==========================================
 const map = L.map('map', { center:[40.0,116.35], zoom:10, zoomControl:false, attributionControl:false });
@@ -430,14 +478,18 @@ let currentDays = 3, activeSpotId = null, markers = [];
 
 function createIcon(spot, birds) {
   const hasN1 = birds.some(b => b.rarity === 'national1');
-  const sz = hasN1 ? 48 : Math.min(46, 30 + birds.length * 1.2);
+  const sz = hasN1 ? 52 : Math.min(48, 32 + birds.length * 1.2);
   const border = hasN1 ? '#dc2626' : '#2563eb';
-  const bg = hasN1 ? '#fef2f2' : '#fff';
   const shadow = hasN1 ? '0 0 12px rgba(220,38,38,0.5)' : '0 2px 8px rgba(0,0,0,0.12)';
   const anim = hasN1 ? 'animation:pulseStrong 1.2s ease-in-out infinite;' : '';
+  const rarest = rarestBird(birds);
+  const photo = rarest ? BIRD_PHOTOS[rarest.latin] : null;
+  const inner = photo
+    ? `<img src="${photo}" style="width:100%;height:100%;object-fit:cover;border-radius:50%;" onerror="this.parentNode.innerHTML='${spot.type}'">`
+    : spot.type;
   return L.divIcon({
     className:'',
-    html:`<div style="width:${sz}px;height:${sz}px;border-radius:50%;background:${bg};border:${hasN1?3:2}px solid ${border};display:flex;align-items:center;justify-content:center;font-size:${sz*0.42}px;cursor:pointer;box-shadow:${shadow};${anim}">${spot.type}</div>`,
+    html:`<div style="width:${sz}px;height:${sz}px;border-radius:50%;background:#fff;border:${hasN1?3:2}px solid ${border};display:flex;align-items:center;justify-content:center;font-size:${sz*0.42}px;cursor:pointer;box-shadow:${shadow};${anim};overflow:hidden">${inner}</div>`,
     iconSize:[sz,sz], iconAnchor:[sz/2,sz/2],
   });
 }
@@ -466,8 +518,11 @@ function makePopup(spot, birds) {
     const rlabel = b.rarity==='national1'?'⭐国一':b.count;
     const srcLink = b.url ? `<a class="popup-bird-source" href="${b.url}" target="_blank">📎 ${b.source} →</a>` :
       `<span style="font-size:10px;color:#94a3b8">${b.source}</span>`;
-    return `<div class="popup-bird">
-      <div class="popup-bird-name"><span>${b.rarity==='national1'?'⭐ ':''}${b.name}</span><span class="popup-bird-latin">${b.latin}</span>${srcLink}</div>
+    const photo = BIRD_PHOTOS[b.latin];
+    const photoHtml = photo ? `<img src="${photo}" style="width:36px;height:36px;border-radius:6px;object-fit:cover;margin-right:8px;flex-shrink:0" onerror="this.style.display='none'">` : '';
+    return `<div class="popup-bird" style="display:flex;align-items:center;">
+      ${photoHtml}
+      <div class="popup-bird-name" style="flex:1"><span>${b.rarity==='national1'?'⭐ ':''}${b.name}</span><span class="popup-bird-latin">${b.latin}</span>${srcLink}</div>
       <div class="popup-bird-right"><span class="popup-bird-rarity ${rcls}">${rlabel}</span><div class="popup-bird-date">${dateStr(b.daysAgo)}</div></div>
     </div>`;
   }).join('');
@@ -521,6 +576,8 @@ document.querySelectorAll('.time-btn').forEach(btn => {
 document.getElementById('searchInput').addEventListener('input', e => renderPanel(e.target.value));
 
 renderMarkers(); renderPanel();
+// 异步加载鸟类照片，完成后自动刷新图标
+preloadPhotos();
 </script>
 </body>
 </html>
