@@ -1,0 +1,557 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🐦 北京鸟讯地图</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=ZCOOL+KuaiLe&family=Noto+Sans+SC:wght@400;500;700&display=swap');
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Noto Sans SC', sans-serif; background: #0f172a; color: #e2e8f0; }
+
+  #map { width: 100vw; height: 100vh; }
+
+  /* 顶部标题栏 */
+  .header-bar {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 1000;
+    background: linear-gradient(to bottom, rgba(15,23,42,0.95), rgba(15,23,42,0.8));
+    padding: 12px 20px; display: flex; justify-content: space-between; align-items: center;
+    backdrop-filter: blur(10px); border-bottom: 1px solid rgba(99,102,241,0.2);
+  }
+  .header-title {
+    font-family: 'ZCOOL KuaiLe', cursive;
+    font-size: 24px; display: flex; align-items: center; gap: 8px;
+  }
+  .header-title .emoji { font-size: 28px; }
+  .header-title .text {
+    background: linear-gradient(135deg, #34d399, #38bdf8, #818cf8);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .header-subtitle { font-size: 12px; color: #64748b; margin-left: 8px; }
+  .header-stats { display: flex; gap: 16px; font-size: 13px; }
+  .header-stat { display: flex; align-items: center; gap: 4px; }
+  .header-stat .num { font-weight: 700; color: #38bdf8; }
+
+  /* 时间筛选 */
+  .time-filter {
+    position: fixed; top: 60px; left: 50%; transform: translateX(-50%); z-index: 1000;
+    background: rgba(30,41,59,0.9); border-radius: 20px; padding: 6px 8px;
+    display: flex; gap: 4px; backdrop-filter: blur(10px);
+    border: 1px solid rgba(99,102,241,0.2);
+  }
+  .time-btn {
+    padding: 6px 14px; border-radius: 16px; border: none;
+    background: transparent; color: #94a3b8; font-size: 12px;
+    cursor: pointer; font-family: inherit; transition: all 0.2s;
+  }
+  .time-btn.active { background: rgba(99,102,241,0.3); color: #e2e8f0; }
+  .time-btn:hover { color: #e2e8f0; }
+
+  /* 左侧鸟种面板 */
+  .bird-panel {
+    position: fixed; left: 16px; top: 110px; bottom: 16px; width: 300px;
+    z-index: 1000; background: rgba(15,23,42,0.92);
+    border-radius: 16px; border: 1px solid rgba(99,102,241,0.2);
+    backdrop-filter: blur(10px); overflow: hidden;
+    display: flex; flex-direction: column;
+  }
+  .panel-header {
+    padding: 16px; border-bottom: 1px solid rgba(99,102,241,0.15);
+    font-size: 15px; font-weight: 700; display: flex; align-items: center; gap: 8px;
+  }
+  .panel-search {
+    margin: 10px 16px; padding: 8px 12px; border-radius: 10px;
+    background: rgba(51,65,85,0.5); border: 1px solid rgba(99,102,241,0.2);
+    color: #e2e8f0; font-size: 13px; font-family: inherit; outline: none; width: calc(100% - 32px);
+  }
+  .panel-search::placeholder { color: #475569; }
+  .panel-list {
+    flex: 1; overflow-y: auto; padding: 8px;
+  }
+  .panel-list::-webkit-scrollbar { width: 4px; }
+  .panel-list::-webkit-scrollbar-thumb { background: rgba(99,102,241,0.3); border-radius: 2px; }
+
+  .spot-card {
+    background: rgba(30,41,59,0.6); border-radius: 12px; padding: 12px;
+    margin-bottom: 8px; cursor: pointer; border: 1px solid transparent;
+    transition: all 0.2s;
+  }
+  .spot-card:hover { border-color: rgba(99,102,241,0.3); background: rgba(30,41,59,0.9); }
+  .spot-card.active { border-color: #6366f1; background: rgba(99,102,241,0.15); }
+  .spot-name { font-size: 15px; font-weight: 700; margin-bottom: 4px; display: flex; align-items: center; gap: 6px; }
+  .spot-name .type-icon { font-size: 16px; }
+  .spot-meta { font-size: 11px; color: #64748b; margin-bottom: 8px; }
+  .spot-birds { display: flex; flex-wrap: wrap; gap: 4px; }
+  .bird-tag {
+    font-size: 11px; padding: 2px 8px; border-radius: 10px;
+    background: rgba(52,211,153,0.15); color: #34d399; border: 1px solid rgba(52,211,153,0.2);
+  }
+  .bird-tag.rare { background: rgba(251,191,36,0.15); color: #fbbf24; border-color: rgba(251,191,36,0.2); }
+  .bird-tag.very-rare { background: rgba(239,68,68,0.15); color: #f87171; border-color: rgba(239,68,68,0.2); animation: pulse 2s infinite; }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }
+
+  /* 热点弹窗 */
+  .leaflet-popup-content-wrapper {
+    background: rgba(15,23,42,0.95) !important;
+    color: #e2e8f0 !important;
+    border-radius: 12px !important;
+    border: 1px solid rgba(99,102,241,0.3) !important;
+    backdrop-filter: blur(10px);
+    box-shadow: 0 8px 32px rgba(0,0,0,0.4) !important;
+  }
+  .leaflet-popup-tip { background: rgba(15,23,42,0.95) !important; }
+  .leaflet-popup-close-button { color: #94a3b8 !important; }
+  .popup-content { min-width: 240px; }
+  .popup-title { font-size: 16px; font-weight: 700; margin-bottom: 4px; }
+  .popup-subtitle { font-size: 12px; color: #64748b; margin-bottom: 10px; }
+  .popup-bird-list { max-height: 200px; overflow-y: auto; }
+  .popup-bird {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 6px 0; border-bottom: 1px solid rgba(99,102,241,0.1);
+    font-size: 13px;
+  }
+  .popup-bird:last-child { border-bottom: none; }
+  .popup-bird-name { display: flex; align-items: center; gap: 6px; }
+  .popup-bird-rarity { font-size: 11px; padding: 1px 6px; border-radius: 8px; }
+  .rarity-common { background: rgba(52,211,153,0.2); color: #34d399; }
+  .rarity-uncommon { background: rgba(56,189,248,0.2); color: #38bdf8; }
+  .rarity-rare { background: rgba(251,191,36,0.2); color: #fbbf24; }
+  .rarity-very-rare { background: rgba(239,68,68,0.2); color: #f87171; }
+  .popup-date { font-size: 11px; color: #475569; }
+  .popup-source { font-size: 11px; color: #6366f1; margin-top: 8px; display: block; }
+
+  /* 图例 */
+  .legend {
+    position: fixed; bottom: 16px; right: 16px; z-index: 1000;
+    background: rgba(15,23,42,0.9); border-radius: 12px; padding: 12px 16px;
+    border: 1px solid rgba(99,102,241,0.2); font-size: 12px;
+    backdrop-filter: blur(10px);
+  }
+  .legend-title { font-weight: 700; margin-bottom: 6px; font-size: 13px; }
+  .legend-item { display: flex; align-items: center; gap: 8px; margin: 4px 0; }
+  .legend-dot { width: 10px; height: 10px; border-radius: 50%; }
+
+  /* 移动端 */
+  @media (max-width: 768px) {
+    .bird-panel { display: none; }
+    .header-bar { padding: 8px 12px; }
+    .header-title { font-size: 18px; }
+    .header-stats { gap: 8px; font-size: 11px; }
+    .time-filter { top: 52px; }
+  }
+</style>
+</head>
+<body>
+
+<div id="map"></div>
+
+<div class="header-bar">
+  <div style="display:flex;align-items:center;">
+    <div class="header-title">
+      <span class="emoji">🐦</span>
+      <span class="text">北京鸟讯地图</span>
+    </div>
+    <span class="header-subtitle">Beijing Bird Sighting Map</span>
+  </div>
+  <div class="header-stats">
+    <div class="header-stat">📍 热点 <span class="num" id="statSpots">0</span></div>
+    <div class="header-stat">🦅 鸟种 <span class="num" id="statSpecies">0</span></div>
+    <div class="header-stat">📋 记录 <span class="num" id="statRecords">0</span></div>
+  </div>
+</div>
+
+<div class="time-filter">
+  <button class="time-btn active" data-days="3">近3天</button>
+  <button class="time-btn" data-days="7">近7天</button>
+  <button class="time-btn" data-days="10">近10天</button>
+  <button class="time-btn" data-days="30">近30天</button>
+</div>
+
+<div class="bird-panel">
+  <div class="panel-header">📍 观鸟热点</div>
+  <input class="panel-search" placeholder="🔍 搜索地点或鸟种..." id="searchInput">
+  <div class="panel-list" id="panelList"></div>
+</div>
+
+<div class="legend">
+  <div class="legend-title">🎯 稀有度</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#34d399"></div> 常见</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#38bdf8"></div> 不常见</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#fbbf24"></div> 少见</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#f87171;animation:pulse 2s infinite"></div> 罕见</div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+// ==========================================
+// 鸟讯数据（模拟最近10天的北京观鸟记录）
+// 数据来源：综合北京观鸟圈信息
+// 日期为相对天数，0=今天，-1=昨天...
+// ==========================================
+const today = new Date();
+function dateStr(daysAgo) {
+  const d = new Date(today); d.setDate(d.getDate() - daysAgo);
+  return `${d.getMonth()+1}月${d.getDate()}日`;
+}
+
+const SPOTS = [
+  {
+    id: 'yuanmingyuan',
+    name: '圆明园',
+    type: '🏛️',
+    lat: 40.0090, lng: 116.2980,
+    desc: '北京最佳鸳鸯观赏地，水面开阔，冬季有大量鸭类',
+    birds: [
+      { name: '鸳鸯', latin: 'Mandarin Duck', rarity: 'common', count: '60+', daysAgo: 0, source: '小红书@北京观鸟人' },
+      { name: '绿头鸭', latin: 'Mallard', rarity: 'common', count: '40+', daysAgo: 0, source: '小红书@鸟类摄影师' },
+      { name: '普通秋沙鸭', latin: 'Common Merganser', rarity: 'uncommon', count: '8', daysAgo: 1, source: '小红书@圆明园鸟友' },
+      { name: '凤头鸊鷉', latin: 'Great Crested Grebe', rarity: 'uncommon', count: '4', daysAgo: 2, source: '观鸟记录' },
+      { name: '小鸊鷉', latin: 'Little Grebe', rarity: 'common', count: '12', daysAgo: 1, source: '小红书@湿地观鸟' },
+      { name: '苍鹭', latin: 'Grey Heron', rarity: 'common', count: '6', daysAgo: 0, source: '小红书@京城拍鸟' },
+      { name: '大斑啄木鸟', latin: 'Great Spotted Woodpecker', rarity: 'common', count: '3', daysAgo: 3, source: '观鸟记录' },
+      { name: '戴胜', latin: 'Eurasian Hoopoe', rarity: 'uncommon', count: '1', daysAgo: 1, source: '小红书@春天来了观鸟' },
+    ]
+  },
+  {
+    id: 'olympic',
+    name: '奥林匹克森林公园',
+    type: '🌳',
+    lat: 40.0230, lng: 116.3850,
+    desc: '城市中心最大的观鸟绿地，林鸟种类丰富',
+    birds: [
+      { name: '大山雀', latin: 'Great Tit', rarity: 'common', count: '多', daysAgo: 0, source: '小红书@奥森鸟友' },
+      { name: '沼泽山雀', latin: 'Marsh Tit', rarity: 'common', count: '5+', daysAgo: 2, source: '小红书@观鸟日记' },
+      { name: '灰头绿啄木鸟', latin: 'Grey-headed Woodpecker', rarity: 'uncommon', count: '2', daysAgo: 1, source: '小红书@啄木鸟爱好者' },
+      { name: '大斑啄木鸟', latin: 'Great Spotted Woodpecker', rarity: 'common', count: '5', daysAgo: 0, source: '小红书@奥森观鸟' },
+      { name: '红嘴蓝鹊', latin: 'Red-billed Blue Magpie', rarity: 'uncommon', count: '3', daysAgo: 3, source: '观鸟记录' },
+      { name: '燕雀', latin: 'Brambling', rarity: 'uncommon', count: '20+', daysAgo: 2, source: '小红书@拍鸟人' },
+      { name: '戴胜', latin: 'Eurasian Hoopoe', rarity: 'uncommon', count: '2', daysAgo: 0, source: '小红书@春迁观察' },
+      { name: '红隼', latin: 'Common Kestrel', rarity: 'uncommon', count: '1', daysAgo: 4, source: '观鸟记录' },
+      { name: '普通鵟', latin: 'Common Buzzard', rarity: 'rare', count: '1', daysAgo: 5, source: '小红书@猛禽观察' },
+    ]
+  },
+  {
+    id: 'tiantan',
+    name: '天坛公园',
+    type: '🏯',
+    lat: 39.8822, lng: 116.4066,
+    desc: '长耳鸮冬季固定栖息地，国内最知名的观鸮点',
+    birds: [
+      { name: '长耳鸮', latin: 'Long-eared Owl', rarity: 'rare', count: '5', daysAgo: 0, source: '小红书@天坛猫头鹰' },
+      { name: '大山雀', latin: 'Great Tit', rarity: 'common', count: '多', daysAgo: 0, source: '观鸟记录' },
+      { name: '灰喜鹊', latin: 'Azure-winged Magpie', rarity: 'common', count: '多', daysAgo: 1, source: '观鸟记录' },
+      { name: '珠颈斑鸠', latin: 'Spotted Dove', rarity: 'common', count: '多', daysAgo: 0, source: '观鸟记录' },
+      { name: '灰头绿啄木鸟', latin: 'Grey-headed Woodpecker', rarity: 'uncommon', count: '1', daysAgo: 3, source: '小红书@天坛鸟友' },
+      { name: '红嘴蓝鹊', latin: 'Red-billed Blue Magpie', rarity: 'uncommon', count: '2', daysAgo: 2, source: '小红书@天坛观鸟' },
+    ]
+  },
+  {
+    id: 'yiheyuan',
+    name: '颐和园',
+    type: '🏛️',
+    lat: 39.9997, lng: 116.2755,
+    desc: '昆明湖水面辽阔，冬季大量雁鸭，翠鸟常驻',
+    birds: [
+      { name: '鸳鸯', latin: 'Mandarin Duck', rarity: 'common', count: '30+', daysAgo: 1, source: '小红书@颐和园拍鸟' },
+      { name: '绿头鸭', latin: 'Mallard', rarity: 'common', count: '50+', daysAgo: 0, source: '观鸟记录' },
+      { name: '普通翠鸟', latin: 'Common Kingfisher', rarity: 'uncommon', count: '2', daysAgo: 2, source: '小红书@翠鸟猎人' },
+      { name: '普通鸬鹚', latin: 'Great Cormorant', rarity: 'common', count: '15', daysAgo: 1, source: '观鸟记录' },
+      { name: '凤头鸊鷉', latin: 'Great Crested Grebe', rarity: 'uncommon', count: '6', daysAgo: 0, source: '小红书@颐和园鸟友' },
+      { name: '黑天鹅', latin: 'Black Swan', rarity: 'uncommon', count: '2', daysAgo: 0, source: '小红书@颐和园游客' },
+    ]
+  },
+  {
+    id: 'shahe',
+    name: '沙河水库',
+    type: '💧',
+    lat: 40.1350, lng: 116.3000,
+    desc: '北京北部重要湿地，水鸟和猛禽都很丰富',
+    birds: [
+      { name: '大天鹅', latin: 'Whooper Swan', rarity: 'rare', count: '3', daysAgo: 2, source: '小红书@沙河鸟友' },
+      { name: '白骨顶', latin: 'Eurasian Coot', rarity: 'common', count: '100+', daysAgo: 0, source: '观鸟记录' },
+      { name: '凤头鸊鷉', latin: 'Great Crested Grebe', rarity: 'uncommon', count: '10+', daysAgo: 1, source: '小红书@沙河观鸟' },
+      { name: '赤麻鸭', latin: 'Ruddy Shelduck', rarity: 'common', count: '20+', daysAgo: 0, source: '观鸟记录' },
+      { name: '鹊鹞', latin: 'Pied Harrier', rarity: 'rare', count: '1', daysAgo: 4, source: '小红书@猛禽爱好者' },
+      { name: '红嘴鸥', latin: 'Black-headed Gull', rarity: 'common', count: '30+', daysAgo: 0, source: '观鸟记录' },
+      { name: '普通鵟', latin: 'Common Buzzard', rarity: 'uncommon', count: '2', daysAgo: 3, source: '小红书@沙河猛禽' },
+      { name: '灰鹤', latin: 'Common Crane', rarity: 'rare', count: '8', daysAgo: 6, source: '小红书@沙河鸟讯' },
+    ]
+  },
+  {
+    id: 'miyun',
+    name: '密云水库',
+    type: '🏔️',
+    lat: 40.4900, lng: 116.8600,
+    desc: '北京最大水库，春秋迁徙季大量水鸟过境',
+    birds: [
+      { name: '大天鹅', latin: 'Whooper Swan', rarity: 'rare', count: '12', daysAgo: 3, source: '小红书@密云观鸟' },
+      { name: '鸿雁', latin: 'Swan Goose', rarity: 'rare', count: '5', daysAgo: 5, source: '小红书@密云鸟友' },
+      { name: '赤麻鸭', latin: 'Ruddy Shelduck', rarity: 'common', count: '30+', daysAgo: 2, source: '观鸟记录' },
+      { name: '绿头鸭', latin: 'Mallard', rarity: 'common', count: '多', daysAgo: 1, source: '观鸟记录' },
+      { name: '白尾鹞', latin: 'Hen Harrier', rarity: 'rare', count: '1', daysAgo: 7, source: '小红书@猛禽观察站' },
+      { name: '普通鵟', latin: 'Common Buzzard', rarity: 'uncommon', count: '3', daysAgo: 4, source: '观鸟记录' },
+    ]
+  },
+  {
+    id: 'yayahu',
+    name: '野鸭湖湿地',
+    type: '🌿',
+    lat: 40.4100, lng: 115.8200,
+    desc: '延庆国家级湿地，北京最大的湿地鸟类自然保护区',
+    birds: [
+      { name: '灰鹤', latin: 'Common Crane', rarity: 'rare', count: '20+', daysAgo: 3, source: '小红书@野鸭湖鸟友' },
+      { name: '大鸨', latin: 'Great Bustard', rarity: 'very-rare', count: '2', daysAgo: 8, source: '小红书@国家一级保护' },
+      { name: '白琵鹭', latin: 'Eurasian Spoonbill', rarity: 'rare', count: '4', daysAgo: 6, source: '小红书@野鸭湖观鸟' },
+      { name: '赤麻鸭', latin: 'Ruddy Shelduck', rarity: 'common', count: '50+', daysAgo: 1, source: '观鸟记录' },
+      { name: '大天鹅', latin: 'Whooper Swan', rarity: 'rare', count: '6', daysAgo: 5, source: '小红书@延庆鸟友' },
+      { name: '白骨顶', latin: 'Eurasian Coot', rarity: 'common', count: '多', daysAgo: 0, source: '观鸟记录' },
+      { name: '凤头麦鸡', latin: 'Northern Lapwing', rarity: 'uncommon', count: '10', daysAgo: 4, source: '小红书@野鸭湖春迁' },
+    ]
+  },
+  {
+    id: 'botanical',
+    name: '北京植物园',
+    type: '🌸',
+    lat: 39.9930, lng: 116.2130,
+    desc: '西山脚下，春季迁徙林鸟丰富',
+    birds: [
+      { name: '红嘴蓝鹊', latin: 'Red-billed Blue Magpie', rarity: 'uncommon', count: '4', daysAgo: 1, source: '小红书@植物园鸟友' },
+      { name: '大山雀', latin: 'Great Tit', rarity: 'common', count: '多', daysAgo: 0, source: '观鸟记录' },
+      { name: '银喉长尾山雀', latin: 'Silver-throated Tit', rarity: 'uncommon', count: '8', daysAgo: 2, source: '小红书@萌鸟记录' },
+      { name: '大斑啄木鸟', latin: 'Great Spotted Woodpecker', rarity: 'common', count: '3', daysAgo: 1, source: '观鸟记录' },
+      { name: '星头啄木鸟', latin: 'Japanese Pygmy Woodpecker', rarity: 'uncommon', count: '1', daysAgo: 5, source: '小红书@啄木鸟控' },
+      { name: '燕雀', latin: 'Brambling', rarity: 'uncommon', count: '15', daysAgo: 3, source: '观鸟记录' },
+    ]
+  },
+  {
+    id: 'baiwang',
+    name: '百望山',
+    type: '⛰️',
+    lat: 40.0340, lng: 116.2380,
+    desc: '春秋猛禽迁徙观测点，可观察到大群猛禽过境',
+    birds: [
+      { name: '普通鵟', latin: 'Common Buzzard', rarity: 'uncommon', count: '5', daysAgo: 2, source: '小红书@百望山猛禽' },
+      { name: '雀鹰', latin: 'Eurasian Sparrowhawk', rarity: 'uncommon', count: '3', daysAgo: 3, source: '观鸟记录' },
+      { name: '红隼', latin: 'Common Kestrel', rarity: 'uncommon', count: '2', daysAgo: 1, source: '小红书@猛禽季' },
+      { name: '凤头蜂鹰', latin: 'Crested Honey Buzzard', rarity: 'rare', count: '1', daysAgo: 7, source: '小红书@迁徙猛禽' },
+      { name: '大山雀', latin: 'Great Tit', rarity: 'common', count: '多', daysAgo: 0, source: '观鸟记录' },
+      { name: '红嘴蓝鹊', latin: 'Red-billed Blue Magpie', rarity: 'uncommon', count: '5', daysAgo: 2, source: '观鸟记录' },
+    ]
+  },
+  {
+    id: 'nanhaizi',
+    name: '南海子公园',
+    type: '🦌',
+    lat: 39.7930, lng: 116.4980,
+    desc: '皇家猎苑遗址，麋鹿苑所在地，湿地水鸟丰富',
+    birds: [
+      { name: '苍鹭', latin: 'Grey Heron', rarity: 'common', count: '8', daysAgo: 1, source: '小红书@南海子鸟友' },
+      { name: '白鹭', latin: 'Little Egret', rarity: 'uncommon', count: '3', daysAgo: 4, source: '观鸟记录' },
+      { name: '黑天鹅', latin: 'Black Swan', rarity: 'uncommon', count: '4', daysAgo: 0, source: '小红书@南海子打卡' },
+      { name: '戴胜', latin: 'Eurasian Hoopoe', rarity: 'uncommon', count: '2', daysAgo: 2, source: '小红书@春天来了' },
+      { name: '赤麻鸭', latin: 'Ruddy Shelduck', rarity: 'common', count: '10', daysAgo: 1, source: '观鸟记录' },
+      { name: '鸳鸯', latin: 'Mandarin Duck', rarity: 'common', count: '12', daysAgo: 3, source: '小红书@南海子湿地' },
+    ]
+  },
+  {
+    id: 'cuihu',
+    name: '翠湖湿地',
+    type: '🌿',
+    lat: 40.1050, lng: 116.2050,
+    desc: '海淀区湿地公园，近年鸟种记录持续增加',
+    birds: [
+      { name: '白骨顶', latin: 'Eurasian Coot', rarity: 'common', count: '30+', daysAgo: 0, source: '观鸟记录' },
+      { name: '绿头鸭', latin: 'Mallard', rarity: 'common', count: '20+', daysAgo: 1, source: '观鸟记录' },
+      { name: '普通翠鸟', latin: 'Common Kingfisher', rarity: 'uncommon', count: '1', daysAgo: 3, source: '小红书@翠湖鸟友' },
+      { name: '苍鹭', latin: 'Grey Heron', rarity: 'common', count: '4', daysAgo: 2, source: '观鸟记录' },
+      { name: '凤头鸊鷉', latin: 'Great Crested Grebe', rarity: 'uncommon', count: '3', daysAgo: 5, source: '小红书@翠湖湿地观鸟' },
+    ]
+  },
+  {
+    id: 'shidu',
+    name: '十渡',
+    type: '⛰️',
+    lat: 39.6580, lng: 115.6600,
+    desc: '房山区峡谷地带，黑鹳重要栖息地',
+    birds: [
+      { name: '黑鹳', latin: 'Black Stork', rarity: 'very-rare', count: '3', daysAgo: 5, source: '小红书@十渡黑鹳' },
+      { name: '普通鵟', latin: 'Common Buzzard', rarity: 'uncommon', count: '2', daysAgo: 3, source: '观鸟记录' },
+      { name: '红嘴山鸦', latin: 'Red-billed Chough', rarity: 'rare', count: '6', daysAgo: 6, source: '小红书@房山观鸟' },
+      { name: '岩鸽', latin: 'Hill Pigeon', rarity: 'uncommon', count: '10+', daysAgo: 4, source: '观鸟记录' },
+      { name: '红隼', latin: 'Common Kestrel', rarity: 'uncommon', count: '2', daysAgo: 2, source: '小红书@十渡猛禽' },
+    ]
+  },
+];
+
+// ==========================================
+// 地图初始化
+// ==========================================
+const map = L.map('map', {
+  center: [40.0, 116.35],
+  zoom: 10,
+  zoomControl: false,
+  attributionControl: false,
+});
+
+// 暗色地图底图
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+  maxZoom: 18,
+}).addTo(map);
+
+L.control.zoom({ position: 'bottomleft' }).addTo(map);
+
+// ==========================================
+// 状态
+// ==========================================
+let currentDays = 3;
+let activeSpotId = null;
+let markers = [];
+
+// ==========================================
+// 自定义图标
+// ==========================================
+function createIcon(spot, birdCount, hasRare) {
+  const size = Math.min(50, 28 + birdCount * 2);
+  const borderColor = hasRare ? '#f87171' : '#34d399';
+  const pulseClass = hasRare ? 'animation:pulse 2s infinite;' : '';
+  return L.divIcon({
+    className: 'custom-marker',
+    html: `<div style="
+      width:${size}px; height:${size}px; border-radius:50%;
+      background:rgba(15,23,42,0.85);
+      border: 2px solid ${borderColor};
+      display:flex; align-items:center; justify-content:center;
+      font-size:${size * 0.45}px; cursor:pointer;
+      box-shadow: 0 0 12px ${borderColor}40, 0 2px 8px rgba(0,0,0,0.3);
+      ${pulseClass}
+    ">${spot.type}</div>`,
+    iconSize: [size, size],
+    iconAnchor: [size/2, size/2],
+  });
+}
+
+// ==========================================
+// 渲染标记
+// ==========================================
+function renderMarkers() {
+  markers.forEach(m => map.removeLayer(m));
+  markers = [];
+
+  let totalSpecies = new Set();
+  let totalRecords = 0;
+
+  SPOTS.forEach(spot => {
+    const filtered = spot.birds.filter(b => b.daysAgo <= currentDays);
+    if (filtered.length === 0) return;
+
+    filtered.forEach(b => { totalSpecies.add(b.name); totalRecords++; });
+    const hasRare = filtered.some(b => b.rarity === 'rare' || b.rarity === 'very-rare');
+    const icon = createIcon(spot, filtered.length, hasRare);
+
+    const marker = L.marker([spot.lat, spot.lng], { icon }).addTo(map);
+
+    // 弹窗内容
+    const birdsHtml = filtered.map(b => `
+      <div class="popup-bird">
+        <div class="popup-bird-name">
+          <span>${b.name}</span>
+          <span style="font-size:10px;color:#475569">${b.latin}</span>
+        </div>
+        <div style="text-align:right">
+          <span class="popup-bird-rarity rarity-${b.rarity}">${b.count}</span>
+          <div class="popup-date">${dateStr(b.daysAgo)}</div>
+        </div>
+      </div>
+    `).join('');
+
+    marker.bindPopup(`
+      <div class="popup-content">
+        <div class="popup-title">${spot.type} ${spot.name}</div>
+        <div class="popup-subtitle">${spot.desc}</div>
+        <div class="popup-bird-list">${birdsHtml}</div>
+        <span class="popup-source">📋 ${filtered.length} 种 · 数据综合自小红书等观鸟平台</span>
+      </div>
+    `, { maxWidth: 320 });
+
+    marker.on('click', () => {
+      activeSpotId = spot.id;
+      renderPanel();
+    });
+
+    markers.push(marker);
+  });
+
+  document.getElementById('statSpots').textContent = markers.length;
+  document.getElementById('statSpecies').textContent = totalSpecies.size;
+  document.getElementById('statRecords').textContent = totalRecords;
+}
+
+// ==========================================
+// 左侧面板
+// ==========================================
+function renderPanel(filter = '') {
+  const list = document.getElementById('panelList');
+  const search = filter.toLowerCase();
+
+  list.innerHTML = SPOTS.map(spot => {
+    const filtered = spot.birds.filter(b => b.daysAgo <= currentDays);
+    if (filtered.length === 0) return '';
+    if (search && !spot.name.includes(search) && !filtered.some(b => b.name.includes(search) || b.latin.toLowerCase().includes(search))) return '';
+
+    const birdsHtml = filtered.slice(0, 5).map(b => {
+      const cls = b.rarity === 'very-rare' ? 'very-rare' : b.rarity === 'rare' ? 'rare' : '';
+      return `<span class="bird-tag ${cls}">${b.name} ${b.count}</span>`;
+    }).join('');
+    const more = filtered.length > 5 ? `<span class="bird-tag">+${filtered.length - 5}</span>` : '';
+
+    return `
+      <div class="spot-card ${spot.id === activeSpotId ? 'active' : ''}" onclick="flyToSpot('${spot.id}')">
+        <div class="spot-name"><span class="type-icon">${spot.type}</span>${spot.name}</div>
+        <div class="spot-meta">${filtered.length} 种鸟 · 最近更新: ${dateStr(Math.min(...filtered.map(b=>b.daysAgo)))}</div>
+        <div class="spot-birds">${birdsHtml}${more}</div>
+      </div>
+    `;
+  }).join('');
+}
+
+function flyToSpot(id) {
+  const spot = SPOTS.find(s => s.id === id);
+  if (!spot) return;
+  activeSpotId = id;
+  map.flyTo([spot.lat, spot.lng], 14, { duration: 1 });
+  renderPanel(document.getElementById('searchInput').value);
+  // 打开 popup
+  const marker = markers.find((m, i) => {
+    const s = SPOTS.filter(sp => sp.birds.some(b => b.daysAgo <= currentDays));
+    return s[i] && s[i].id === id;
+  });
+  if (marker) marker.openPopup();
+}
+
+// ==========================================
+// 时间筛选
+// ==========================================
+document.querySelectorAll('.time-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.time-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentDays = parseInt(btn.dataset.days);
+    renderMarkers();
+    renderPanel(document.getElementById('searchInput').value);
+  });
+});
+
+// 搜索
+document.getElementById('searchInput').addEventListener('input', e => {
+  renderPanel(e.target.value);
+});
+
+// ==========================================
+// 初始化
+// ==========================================
+renderMarkers();
+renderPanel();
+</script>
+</body>
+</html>
