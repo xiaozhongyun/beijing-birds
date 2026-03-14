@@ -85,7 +85,8 @@
   .bird-tag.rare { background: #fefce8; color: #ca8a04; border-color: #fef08a; }
   .bird-tag.very-rare { background: #fef2f2; color: #dc2626; border-color: #fecaca; font-weight: 700; animation: pulse 2s infinite; }
   .bird-tag.national1 { background: #dc2626; color: #fff; border-color: #dc2626; font-weight: 700; animation: pulse 1.5s infinite; }
-  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.7; } }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.6; } }
+  @keyframes pulseStrong { 0%,100% { transform: scale(1); box-shadow: 0 0 8px rgba(220,38,38,0.6); } 50% { transform: scale(1.15); box-shadow: 0 0 24px rgba(220,38,38,0.8), 0 0 48px rgba(220,38,38,0.3); } }
 
   .leaflet-popup-content-wrapper {
     background: rgba(255,255,255,0.96) !important; color: #1e293b !important;
@@ -429,14 +430,14 @@ let currentDays = 3, activeSpotId = null, markers = [];
 
 function createIcon(spot, birds) {
   const hasN1 = birds.some(b => b.rarity === 'national1');
-  const hasRare = birds.some(b => b.rarity === 'rare' || b.rarity === 'very-rare');
-  const sz = Math.min(52, 28 + birds.length * 1.5);
-  const border = hasN1 ? '#dc2626' : hasRare ? '#ca8a04' : '#059669';
-  const shadow = hasN1 ? '0 0 16px rgba(220,38,38,0.5),0 0 32px rgba(220,38,38,0.2)' : `0 0 8px ${border}30`;
-  const anim = hasN1 ? 'animation:pulse 1.5s infinite;' : '';
+  const sz = hasN1 ? 48 : Math.min(46, 30 + birds.length * 1.2);
+  const border = hasN1 ? '#dc2626' : '#2563eb';
+  const bg = hasN1 ? '#fef2f2' : '#fff';
+  const shadow = hasN1 ? '0 0 12px rgba(220,38,38,0.5)' : '0 2px 8px rgba(0,0,0,0.12)';
+  const anim = hasN1 ? 'animation:pulseStrong 1.2s ease-in-out infinite;' : '';
   return L.divIcon({
     className:'',
-    html:`<div style="width:${sz}px;height:${sz}px;border-radius:50%;background:#fff;border:2.5px solid ${border};display:flex;align-items:center;justify-content:center;font-size:${sz*0.42}px;cursor:pointer;box-shadow:${shadow};${anim}">${spot.type}</div>`,
+    html:`<div style="width:${sz}px;height:${sz}px;border-radius:50%;background:${bg};border:${hasN1?3:2}px solid ${border};display:flex;align-items:center;justify-content:center;font-size:${sz*0.42}px;cursor:pointer;box-shadow:${shadow};${anim}">${spot.type}</div>`,
     iconSize:[sz,sz], iconAnchor:[sz/2,sz/2],
   });
 }
