@@ -818,25 +818,58 @@ function showToast(msg, ms=2000) {
 }
 
 // ==========================================
-// 鸟类照片缓存
+// 鸟类照片缓存 — 多源策略：iNaturalist → Wikipedia
 // ==========================================
 const BIRD_PHOTOS = {};
 const PHOTO_LOADING = {};
 
-async function fetchBirdPhoto(latin) {
-  if (BIRD_PHOTOS[latin]) return BIRD_PHOTOS[latin];
-  if (PHOTO_LOADING[latin]) return null;
-  PHOTO_LOADING[latin] = true;
+// 从 iNaturalist 获取鸟类照片（覆盖率高，观鸟社区数据）
+async function fetchFromINaturalist(latin) {
+  try {
+    const url = `https://api.inaturalist.org/v1/taxa?q=${encodeURIComponent(latin)}&rank=species&per_page=1`;
+    const r = await fetch(url);
+    if (!r.ok) return null;
+    const d = await r.json();
+    if (d.results && d.results.length > 0) {
+      const taxon = d.results[0];
+      // 优先使用 default_photo，通常是社区投票最佳照片
+      if (taxon.default_photo && taxon.default_photo.medium_url) {
+        return taxon.default_photo.medium_url;
+      }
+    }
+  } catch(e) {}
+  return null;
+}
+
+// 从 Wikipedia 获取鸟类照片（备选）
+async function fetchFromWikipedia(latin) {
   try {
     const url = `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(latin.replace(/ /g,'_'))}`;
     const r = await fetch(url);
     if (!r.ok) return null;
     const d = await r.json();
     if (d.thumbnail?.source) {
-      BIRD_PHOTOS[latin] = d.thumbnail.source.replace(/\/\d+px-/,'/200px-');
-      return BIRD_PHOTOS[latin];
+      return d.thumbnail.source.replace(/\/\d+px-/,'/300px-');
     }
   } catch(e) {}
+  return null;
+}
+
+// 多源获取：先 iNaturalist，再 Wikipedia
+async function fetchBirdPhoto(latin) {
+  if (BIRD_PHOTOS[latin]) return BIRD_PHOTOS[latin];
+  if (PHOTO_LOADING[latin]) return null;
+  PHOTO_LOADING[latin] = true;
+  
+  // 先试 iNaturalist
+  let photo = await fetchFromINaturalist(latin);
+  // 再试 Wikipedia
+  if (!photo) photo = await fetchFromWikipedia(latin);
+  
+  if (photo) {
+    BIRD_PHOTOS[latin] = photo;
+    return photo;
+  }
   return null;
 }
 
@@ -844,8 +877,9 @@ async function preloadPhotos() {
   const all = new Set();
   SPOTS.forEach(s => s.birds.forEach(b => all.add(b.latin)));
   const arr = [...all];
-  for (let i=0; i<arr.length; i+=6) {
-    await Promise.all(arr.slice(i,i+6).map(l=>fetchBirdPhoto(l)));
+  // 每批4个并发，避免打爆 API
+  for (let i=0; i<arr.length; i+=4) {
+    await Promise.all(arr.slice(i,i+4).map(l=>fetchBirdPhoto(l)));
   }
   renderMarkers(); renderPanel();
 }
@@ -1117,9 +1151,16 @@ function openBirdDetail(name, latin) {
   const rarityLabel = {national1:'⭐ 国家一级保护',rare:'少见',uncommon:'不常见',common:'常见'}[rarity]||rarity;
   const isProtected = rarity === 'national1';
 
+  // 获取大图 URL（iNaturalist: medium→original; Wikipedia: 提升px）
+  function getLargePhoto(url) {
+    if (!url) return url;
+    if (url.includes('inaturalist')) return url.replace('/medium', '/large');
+    return url.replace(/\/\d+px-/, '/400px-');
+  }
+
   const photoHtml = photo
-    ? `<img class="modal-photo" src="${photo.replace(/\/\d+px-/,'/400px-')}" onerror="this.outerHTML='<div class=\\'modal-photo-placeholder\\'>'+String.fromCodePoint(0x1F426)+'</div>'">`
-    : `<div class="modal-photo-placeholder">${catIcon}</div>`;
+    ? `<img class="modal-photo" src="${getLargePhoto(photo)}" onerror="this.outerHTML='<div class=\\'modal-photo-placeholder\\'>'+String.fromCodePoint(0x1F426)+'</div>'">`
+    : `<div class="modal-photo-placeholder">🐦</div>`;
 
   document.getElementById('birdModalContent').innerHTML = `
     ${photoHtml}
@@ -1143,7 +1184,7 @@ function openBirdDetail(name, latin) {
   if (!photo) fetchBirdPhoto(latin).then(url=>{
     if (url) {
       const img = document.querySelector('.modal-photo-placeholder');
-      if (img) img.outerHTML = `<img class="modal-photo" src="${url.replace(/\/\d+px-/,'/400px-')}" onerror="this.style.display='none'">`;
+      if (img) img.outerHTML = `<img class="modal-photo" src="${getLargePhoto(url)}" onerror="this.style.display='none'">`;
     }
   });
 }
